@@ -68,7 +68,7 @@ SYNC_VENDOR=${SYNC_VENDOR:-false}
 
 TEMPFILE=".rsynctemp"
 
-CONTAINER_ENV="--env HTTP_PROXY=${HTTP_PROXY} --env HTTPS_PROXY=${HTTP_PROXY} --env NO_PROXY=${NO_PROXY} --env KUBEVIRT_NO_BAZEL=${KUBEVIRT_NO_BAZEL} --env KUBEVIRT_CENTOS_STREAM_VERSION=${KUBEVIRT_CENTOS_STREAM_VERSION} --env GOMAXPROCS=${GOMAXPROCS} --env GO_TEST_CACHE_BUCKET=${GO_TEST_CACHE_BUCKET:-}"
+CONTAINER_ENV="--env HTTP_PROXY=${HTTP_PROXY} --env HTTPS_PROXY=${HTTP_PROXY} --env NO_PROXY=${NO_PROXY} --env KUBEVIRT_CENTOS_STREAM_VERSION=${KUBEVIRT_CENTOS_STREAM_VERSION} --env GOMAXPROCS=${GOMAXPROCS} --env GO_TEST_CACHE_BUCKET=${GO_TEST_CACHE_BUCKET:-}"
 
 # Create the persistent container volume
 if [ -z "$($KUBEVIRT_CRI volume list | grep ${BUILDER})" ]; then
@@ -183,30 +183,38 @@ if [ -n "${GOOGLE_APPLICATION_CREDENTIALS-}" ] && [ -f "${GOOGLE_APPLICATION_CRE
     CONTAINER_ENV="${CONTAINER_ENV} --env GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}"
 fi
 
-# Ensure that a bazel server which is running is the correct one
+# Stop the builder container left over from before it was renamed; it only
+# sleeps, so it would keep idling next to the new one. Remove this once
+# Bazel is gone.
 if [ -n "$($KUBEVIRT_CRI ps --format '{{.Names}}' | grep ${BUILDER}-bazel-server)" ]; then
+    echo "Stopping the old ${BUILDER}-bazel-server container ..."
+    $KUBEVIRT_CRI stop ${BUILDER}-bazel-server >/dev/null
+fi
+
+# Ensure that the running builder container uses the current builder image
+if [ -n "$($KUBEVIRT_CRI ps --format '{{.Names}}' | grep ${BUILDER}-build-server)" ]; then
     # check if the image is correct
     builder_id=$($KUBEVIRT_CRI inspect --format='{{.Id}}' ${KUBEVIRT_BUILDER_IMAGE})
-    bazel_server_id=$($KUBEVIRT_CRI inspect --format='{{.Image}}' ${BUILDER}-bazel-server)
-    if [ "${builder_id}" != "${bazel_server_id}" ]; then
-        echo "Bazel server is outdated, restarting ..."
-        $KUBEVIRT_CRI stop ${BUILDER}-bazel-server
+    build_server_id=$($KUBEVIRT_CRI inspect --format='{{.Image}}' ${BUILDER}-build-server)
+    if [ "${builder_id}" != "${build_server_id}" ]; then
+        echo "Builder container is outdated, restarting ..."
+        $KUBEVIRT_CRI stop ${BUILDER}-build-server
     fi
 fi
 
-# Ensure that a bazel server is running
-if [ -z "$($KUBEVIRT_CRI ps --format '{{.Names}}' | grep ${BUILDER}-bazel-server)" ]; then
-    $KUBEVIRT_CRI run ${CONTAINER_ENV} --ulimit nofile=10000:10000 --network host -d ${volumes} --security-opt "label=disable" --name ${BUILDER}-bazel-server -w "/root/go/src/kubevirt.io/kubevirt" --rm ${KUBEVIRT_BUILDER_IMAGE} hack/bazel-server.sh
+# Ensure that the builder container is running
+if [ -z "$($KUBEVIRT_CRI ps --format '{{.Names}}' | grep ${BUILDER}-build-server)" ]; then
+    $KUBEVIRT_CRI run ${CONTAINER_ENV} --ulimit nofile=10000:10000 --network host -d ${volumes} --security-opt "label=disable" --name ${BUILDER}-build-server -w "/root/go/src/kubevirt.io/kubevirt" --rm ${KUBEVIRT_BUILDER_IMAGE} hack/builder-keepalive.sh
 fi
 
 # Update cert trust, if custom is provided
 if [ -n "$DOCKER_CA_CERT_FILE" ] && [ -f "$DOCKER_CA_CERT_FILE" ]; then
-    $KUBEVIRT_CRI exec ${CONTAINER_ENV} ${BUILDER}-bazel-server /entrypoint.sh "/usr/bin/update-ca-trust"
+    $KUBEVIRT_CRI exec ${CONTAINER_ENV} ${BUILDER}-build-server /entrypoint.sh "/usr/bin/update-ca-trust"
 fi
 
 # Run the command
 test -t 1 && USE_TTY="-it"
-if ! $KUBEVIRT_CRI exec ${CONTAINER_ENV} ${USE_TTY} ${BUILDER}-bazel-server /entrypoint.sh "$@"; then
+if ! $KUBEVIRT_CRI exec ${CONTAINER_ENV} ${USE_TTY} ${BUILDER}-build-server /entrypoint.sh "$@"; then
     # Copy the build output out of the container, make sure that _out exactly matches the build result
     if [ "$SYNC_OUT" = "true" ]; then
         _rsync --delete "rsync://root@127.0.0.1:${RSYNCD_PORT}/out" ${OUT_DIR}

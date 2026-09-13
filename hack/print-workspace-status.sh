@@ -24,7 +24,7 @@ export KUBEVIRT_DIR=$(dirname "${BASH_SOURCE}")/..
 export SANDBOX_DIR=${KUBEVIRT_DIR}/.bazeldnf/sandbox
 
 source "${KUBEVIRT_DIR}/hack/version.sh"
-KUBEVIRT_NO_BAZEL=true source "${KUBEVIRT_DIR}/hack/bootstrap.sh"
+KUBEVIRT_SKIP_BOOTSTRAP=true source "${KUBEVIRT_DIR}/hack/bootstrap.sh"
 kubevirt::version::get_version_vars
 
 # Prefix with STABLE_ so that these values are saved to stable-status.txt

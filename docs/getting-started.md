@@ -341,7 +341,7 @@ update the build files with your changes.
 In case you work on two or more branches, `make generate` for example might fail,
 the reason is there is a Bazel server in the background, and when the base image changes,
 it should be auto restarted, the detection does not always work perfectly.
-To solve it, run `docker stop kubevirt-bazel-server`, which will stop the Bazel server.
+To solve it, run `docker stop kubevirt-build-server`, which will stop the builder container and the Bazel server running inside it.
 
 #### Git worktrees and build tooling
 

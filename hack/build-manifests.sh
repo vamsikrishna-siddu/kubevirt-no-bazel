@@ -20,7 +20,6 @@
 set -e
 
 source hack/common.sh
-source hack/bootstrap.sh
 source hack/config.sh
 
 manifest_docker_prefix=${manifest_docker_prefix-${docker_prefix}}
@@ -33,16 +32,7 @@ rm -rf "${TESTS_OUT_DIR}/tools"
 mkdir -p "${TESTS_OUT_DIR}/tools"
 templator=${TESTS_OUT_DIR}/tools/manifest-templator
 
-if [ "${KUBEVIRT_NO_BAZEL}" != "true" ]; then
-    bazel build \
-        --config=${HOST_ARCHITECTURE} ${BAZEL_CS_CONFIG} \
-        //tools/manifest-templator:templator
-    cp -f $(bazel cquery \
-        --config=${HOST_ARCHITECTURE} ${BAZEL_CS_CONFIG} \
-        --output=files //tools/manifest-templator:templator) ${templator}
-else
-    (cd ${KUBEVIRT_DIR}/tools/manifest-templator/ && go_build && cp manifest-templator ${templator})
-fi
+(cd ${KUBEVIRT_DIR}/tools/manifest-templator/ && go_build && cp manifest-templator ${templator})
 
 # first process file includes only
 args=$(cd ${KUBEVIRT_DIR}/manifests && find . -type f -name "*.yaml.in" -not -path "./generated/*")
