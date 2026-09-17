@@ -44,6 +44,12 @@ bazel-push-images:
 
 push: bazel-push-images
 
+rpm-base-build:
+	./hack/rpm-base-images/build-base-images.sh
+
+rpm-base-push:
+	./hack/rpm-base-images/push-base-images.sh
+
 bazel-test:
 	hack/dockerized "hack/bazel-fmt.sh && CI=${CI} ARTIFACTS=${ARTIFACTS} WHAT=${WHAT}  hack/bazel-test.sh"
 
@@ -280,6 +286,8 @@ vmlog-checker:
 	bazel-build-images \
 	bazel-push-images \
 	bazel-test \
+	rpm-base-build \
+	rpm-base-push \
 	functest-image-build \
 	functest-image-push \
 	test \
