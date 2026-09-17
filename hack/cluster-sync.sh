@@ -30,7 +30,12 @@ function main() {
     ./hack/cluster-clean.sh >$TEMP_FILE 2>&1 &
     CLEAN_PID=$!
 
-    ./hack/cluster-build.sh
+    # Select the build script: container (default) or Bazel
+    if [ "${KUBEVIRT_USE_BAZEL}" = "true" ]; then
+        ./hack/cluster-build-bazel.sh
+    else
+        ./hack/cluster-build.sh
+    fi
     # We always want to check for updated digests as we are using a single devel tag so set our imagePullPolicy to Always
     # See https://github.com/kubevirt/kubevirt/issues/15218 for more context
     IMAGE_PULL_POLICY=${IMAGE_PULL_POLICY:-Always} ./hack/manifests.sh
