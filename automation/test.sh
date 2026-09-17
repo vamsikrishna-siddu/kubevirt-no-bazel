@@ -44,6 +44,8 @@ if [[ ${CI} == "true" && -n "$PULL_BASE_SHA" && -n "$PULL_PULL_SHA" && "$JOB_NAM
         exit 0
     fi
     RPM_CHANGES=$(echo "$CI_GIT_ALL_CHANGES" | grep -E '^(rpm/|WORKSPACE)' || :)
+    # hack/cluster-build.sh rebuilds the RPM base images when this is set
+    export RPM_CHANGES
  fi
 
 if [ -z $TARGET ]; then
@@ -404,7 +406,11 @@ echo "=================="
 # Build and test images with a custom image name prefix
 export IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT:-kv-}
 
-build_images
+# The container build (default) builds and pushes images in cluster-sync,
+# so only Bazel lanes need the pre-build step.
+if [ "${KUBEVIRT_USE_BAZEL}" = "true" ]; then
+    build_images
+fi
 
 trap '{ collect_debug_logs; }' ERR
 make cluster-up

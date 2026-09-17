@@ -27,7 +27,7 @@ bazel-build:
 bazel-build-functests:
 	hack/dockerized "hack/bazel-fmt.sh && hack/bazel-build-functests.sh"
 
-build-functests: bazel-build-functests
+build-functests: go-build-functests
 
 bazel-build-verify: bazel-build
 	./hack/dockerized "hack/bazel-fmt.sh"
