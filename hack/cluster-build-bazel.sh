@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# This file is part of the KubeVirt project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Copyright 2017 Red Hat, Inc.
+#
+
+# Bazel build flow for cluster-sync.
+# This is the original Bazel-based build path, preserved for Bazel CI lanes.
+# The container build path lives in cluster-build.sh.
+
+set -e
+
+DOCKER_TAG=${DOCKER_TAG:-devel}
+DOCKER_TAG_ALT=${DOCKER_TAG_ALT:-devel_alt}
+
+source hack/common.sh
+source kubevirtci/cluster-up/cluster/$KUBEVIRT_PROVIDER/provider.sh
+source hack/config.sh
+
+echo "Building (Bazel) ..."
+
+# Build everything and publish it
+${KUBEVIRT_PATH}hack/dockerized "BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER} ./hack/bazel-build-functests.sh"
+${KUBEVIRT_PATH}hack/dockerized "BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} DOCKER_TAG_ALT=${DOCKER_TAG_ALT} KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER} IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT} ./hack/multi-arch.sh push-images"
+BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} hack/push-container-manifest.sh
+
+# Build and push cross-arch container disk images for cross-architecture emulation testing
+if [ "${KUBEVIRT_CROSS_ARCH_EMULATION:-}" ]; then
+    cross_arch_targets="fedora-with-test-tooling-container-disk alpine-with-test-tooling-container-disk"
+    host_arch=$(uname -m)
+    case ${host_arch} in
+    x86_64) cross_arch="arm64" ;;
+    aarch64) cross_arch="amd64" ;;
+    esac
+    if [ -n "${cross_arch}" ]; then
+        cross_build_arch=$(format_archname ${cross_arch})
+        cross_tag=$(format_archname ${cross_arch} tag)
+        ${KUBEVIRT_PATH}hack/dockerized "PUSH_TARGETS='${cross_arch_targets}' DOCKER_TAG=${DOCKER_TAG}-${cross_tag} DOCKER_TAG_ALT= DOCKER_PREFIX=${DOCKER_PREFIX} ARCHITECTURE=${cross_build_arch} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER} ./hack/bazel-push-images.sh"
+    fi
+fi
+
+# Push virt-template images
+${KUBEVIRT_PATH}hack/dockerized "BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER} IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT} ./hack/virt-template/push-images.sh"
+
+echo "Done $0"
