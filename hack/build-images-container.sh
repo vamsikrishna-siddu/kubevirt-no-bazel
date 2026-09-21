@@ -58,10 +58,28 @@ BUILD_OUTPUT_DIR=${BUILD_OUTPUT_DIR:-_out}
 DIGESTS_DIR=${DIGESTS_DIR:-${BUILD_OUTPUT_DIR}/digests}
 
 # Builder image configuration
-BUILDER_VERSION=$(grep 'kubevirt_builder_version=' hack/dockerized | cut -d'"' -f2)
-BUILDER_IMAGE=${BUILDER_IMAGE:-quay.io/kubevirt/builder:${BUILDER_VERSION}}
+BUILDER_VERSION=$(grep '^kubevirt_builder_version=' hack/dockerized | cut -d'"' -f2)
+CS10_BUILDER_VERSION=$(grep '^kubevirt_cs10_builder_version=' hack/dockerized | cut -d'"' -f2)
 
 PLATFORM_ARCH=$(format_archname ${BUILD_ARCH} tag)
+HOST_PLATFORM_ARCH=$(format_archname "$(uname -m)" tag)
+
+# The builder stage runs on the build host, so building for another
+# architecture needs the cross compilers from the builder-cross image.
+# hack/dockerized picks the same image for its own builds.
+if [ -z "${BUILDER_IMAGE}" ]; then
+    if [ "${KUBEVIRT_CENTOS_STREAM_VERSION}" == "10" ]; then
+        BUILDER_IMAGE="quay.io/kubevirt/builder-cs10:${CS10_BUILDER_VERSION}"
+        CROSS_IMAGE="quay.io/kubevirt/builder-cs10-cross:${CS10_BUILDER_VERSION}"
+    else
+        BUILDER_IMAGE="quay.io/kubevirt/builder:${BUILDER_VERSION}"
+        CROSS_IMAGE="quay.io/kubevirt/builder-cross:${BUILDER_VERSION}"
+    fi
+    if [ "${PLATFORM_ARCH}" != "${HOST_PLATFORM_ARCH}" ]; then
+        echo "Cross-compiling for ${PLATFORM_ARCH} on ${HOST_PLATFORM_ARCH}: using ${CROSS_IMAGE}"
+        BUILDER_IMAGE="${CROSS_IMAGE}"
+    fi
+fi
 
 # Distroless base image digests per architecture - matches WORKSPACE
 case ${PLATFORM_ARCH} in
