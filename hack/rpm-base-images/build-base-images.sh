@@ -115,6 +115,10 @@ generate_tars_for_image() {
         # handlerbase also needs passt-repair from the passt tree
         trees+=" passt_tree"
     fi
+    if [[ "${image}" == "libvirt-devel" ]]; then
+        # cross-linking virt-launcher also needs the libnbd headers/libs
+        trees+=" libnbd-devel"
+    fi
 
     rm -rf "${context}"
     local tree
