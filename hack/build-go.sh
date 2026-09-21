@@ -39,22 +39,35 @@ else
     args=$@
 fi
 
-PLATFORM=$(uname -m)
-case ${PLATFORM} in
-x86_64* | i?86_64* | amd64*)
-    ARCH="amd64"
-    ;;
-aarch64* | arm64*)
-    ARCH="arm64"
-    ;;
-s390x)
-    ARCH="s390x"
-    ;;
+# Build for BUILD_ARCH when it is set (the container build passes it through),
+# otherwise for the host architecture.
+ARCH=$(format_archname "${BUILD_ARCH:-$(uname -m)}" tag)
+HOST_ARCH=$(format_archname "$(uname -m)" tag)
+
+case ${ARCH} in
+amd64 | arm64 | s390x) ;;
 *)
     echo "invalid Arch, only support x86_64, aarch64 and s390x"
     exit 1
     ;;
 esac
+
+# Cross-compiling: point cgo at the matching cross compiler. CGO_ENABLED is
+# only defaulted, never overridden, because some images build their binaries
+# with CGO_ENABLED=0 on purpose.
+if [ "${ARCH}" != "${HOST_ARCH}" ]; then
+    case ${ARCH} in
+    amd64) export CC=x86_64-linux-gnu-gcc ;;
+    arm64) export CC=aarch64-linux-gnu-gcc ;;
+    s390x) export CC=s390x-linux-gnu-gcc ;;
+    esac
+    export CGO_ENABLED=${CGO_ENABLED:-1}
+
+    if ! command -v "${CC}" >/dev/null 2>&1; then
+        echo "cross compiler ${CC} not found: cross-compiling from ${HOST_ARCH} to ${ARCH} needs the builder-cross image" >&2
+        exit 1
+    fi
+fi
 
 # forward all commands to all packages if no specific one was requested
 # TODO finetune this a little bit more
@@ -113,7 +126,7 @@ if [ "${target}" = "install" ]; then
             cd cmd/container-disk-v2alpha
             # The containerdisk binary needs to be static, as it runs in a scratch container
             echo "building static binary container-disk"
-            gcc -static -o ${CMD_OUT_DIR}/container-disk-v2alpha/container-disk main.c
+            ${CC:-gcc} -static -o ${CMD_OUT_DIR}/container-disk-v2alpha/container-disk main.c
         fi
     )
 fi
@@ -137,7 +150,7 @@ for arg in $args; do
         ARCH_BASENAME=${BIN_NAME}-${KUBEVIRT_VERSION}
         mkdir -p ${CMD_OUT_DIR}/${BIN_NAME}
         (
-            go vet ./$arg/...
+            GOOS=linux GOARCH=${ARCH} go vet ./$arg/...
 
             cd $arg
 
