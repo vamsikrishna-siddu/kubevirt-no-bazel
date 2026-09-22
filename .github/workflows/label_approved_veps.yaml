@@ -10,6 +10,9 @@ permissions:
 
 jobs:
   check-vep:
+    # The VEP tracking labels only apply to kubevirt/kubevirt; forks have no
+    # GH_PAT secret, so the script would fail with 401 on every pull request.
+    if: ${{ github.repository == 'kubevirt/kubevirt' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
