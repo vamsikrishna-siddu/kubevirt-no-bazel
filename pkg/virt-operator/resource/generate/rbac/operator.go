@@ -117,6 +117,19 @@ func NewOperatorClusterRole() *rbacv1.ClusterRole {
 			},
 			{
 				APIGroups: []string{
+					"discovery.k8s.io",
+				},
+				Resources: []string{
+					"endpointslices",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+					"watch",
+				},
+			},
+			{
+				APIGroups: []string{
 					"",
 				},
 				Resources: []string{
@@ -361,6 +374,18 @@ func NewOperatorClusterRole() *rbacv1.ClusterRole {
 				},
 				Resources: []string{
 					"virtualmachinetemplaterequests/source",
+				},
+				Verbs: []string{
+					"create",
+				},
+			},
+			{
+				APIGroups: []string{
+					"subresources.template.kubevirt.io",
+				},
+				Resources: []string{
+					"virtualmachinetemplates/process",
+					"virtualmachinetemplates/create",
 				},
 				Verbs: []string{
 					"create",
