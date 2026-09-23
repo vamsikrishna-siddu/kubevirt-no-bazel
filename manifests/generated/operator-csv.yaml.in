@@ -184,6 +184,14 @@ spec:
           - delete
           - patch
         - apiGroups:
+          - discovery.k8s.io
+          resources:
+          - endpointslices
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
           - ""
           resources:
           - configmaps
@@ -363,6 +371,13 @@ spec:
           - template.kubevirt.io
           resources:
           - virtualmachinetemplaterequests/source
+          verbs:
+          - create
+        - apiGroups:
+          - subresources.template.kubevirt.io
+          resources:
+          - virtualmachinetemplates/process
+          - virtualmachinetemplates/create
           verbs:
           - create
         - nonResourceURLs:

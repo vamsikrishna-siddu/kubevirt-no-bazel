@@ -19,7 +19,7 @@
 
 package virtwrap
 
-//go:generate mockgen -source $GOFILE -package=$GOPACKAGE -destination=generated_mock_$GOFILE
+//go:generate mockgen -source $GOFILE -package=$GOPACKAGE -destination=generated_mock_$GOFILE -exclude_interfaces=diskDriverConfigurator
 
 /*
  ATTENTION: Rerun code generators when interface signatures are modified.
@@ -109,6 +109,7 @@ import (
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/efi"
 	domainerrors "kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/errors"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/stats"
+	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/storage/diskdriver"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/util"
 	virtcache "kubevirt.io/kubevirt/tools/cache"
 )
@@ -208,6 +209,11 @@ type DomainManager interface {
 	GetAgentData(dataKey string) (string, error)
 }
 
+type diskDriverConfigurator interface {
+	SetDriverCacheMode(disk *api.Disk) error
+	SetOptimalIOMode(disk *api.Disk)
+}
+
 type LibvirtDomainManager struct {
 	virConn cli.Connection
 
@@ -230,7 +236,7 @@ type LibvirtDomainManager struct {
 	efiEnvironment         *efi.EFIEnvironment
 	ovmfPath               string
 	ephemeralDiskCreator   ephemeraldisk.EphemeralDiskCreatorInterface
-	directIOChecker        converter.DirectIOChecker
+	driverConfigurator     diskDriverConfigurator
 	disksInfo              map[string]*osdisk.DiskInfo
 	guestDiskSizes         map[string]int64
 	domainInfoStats        *stats.DomainJobInfo
@@ -248,7 +254,6 @@ type LibvirtDomainManager struct {
 	cpuSetGetter                  func() ([]int, error)
 	imageVolumeFeatureGateEnabled bool
 	firmwareAutoSelectionEnabled  bool
-	setTimeOnce                   sync.Once
 
 	// Premigration hook server for VMI updates during migration
 	hookServer *premigrationhookserver.PreMigrationHookServer
@@ -311,14 +316,13 @@ func NewLibvirtDomainManager(
 	allowCrossArchEmulation bool,
 	eventSender accesscredentials.EventSender,
 ) (DomainManager, error) {
-	directIOChecker := converter.NewDirectIOChecker()
 	return newLibvirtDomainManager(connection,
 		virtShareDir,
 		ephemeralDiskDir,
 		agentStore,
 		ovmfPath,
 		ephemeralDiskCreator,
-		directIOChecker,
+		diskdriver.New(),
 		metadataCache,
 		stopChan,
 		diskMemoryLimitBytes,
@@ -340,7 +344,7 @@ func newLibvirtDomainManager(
 	agentStore *agentpoller.AsyncAgentStore,
 	ovmfPath string,
 	ephemeralDiskCreator ephemeraldisk.EphemeralDiskCreatorInterface,
-	directIOChecker converter.DirectIOChecker,
+	driverConfigurator diskDriverConfigurator,
 	metadataCache *metadata.Cache,
 	stopChan chan struct{},
 	diskMemoryLimitBytes int64,
@@ -379,14 +383,13 @@ func newLibvirtDomainManager(
 		efiEnvironment:       efi.DetectEFIEnvironment(runtime.GOARCH, ovmfPath),
 		ovmfPath:             ovmfPath,
 		ephemeralDiskCreator: ephemeralDiskCreator,
-		directIOChecker:      directIOChecker,
+		driverConfigurator:   driverConfigurator,
 		disksInfo:            map[string]*osdisk.DiskInfo{},
 		guestDiskSizes:       map[string]int64{},
 		domainInfoStats:      &stats.DomainJobInfo{},
 
 		metadataCache:                 metadataCache,
 		cpuSetGetter:                  cpuSetGetter,
-		setTimeOnce:                   sync.Once{},
 		imageVolumeFeatureGateEnabled: imageVolumeEnabled,
 		firmwareAutoSelectionEnabled:  firmwareAutoSelectionEnabled,
 		hookServer:                    hookServer,
@@ -448,6 +451,16 @@ func newLibvirtDomainManager(
 				return nil, fmt.Errorf("failed to create agent data cache for %s: %w", cmd, err)
 			}
 			manager.agentDataCaches[cmd] = cache
+		}
+
+		// A guest OS reboot does not recreate virt-launcher, so drop cached
+		// agent data to not serve stale data from before the reboot.
+		err = connection.DomainEventRebootRegister(func(_ *libvirt.Connect, _ *libvirt.Domain) {
+			log.Log.Infof("Domain %s rebooted, resetting agent data caches", domainName)
+			manager.resetAgentDataCaches()
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to register reboot event callback: %w", err)
 		}
 	}
 
@@ -517,74 +530,72 @@ func (l *LibvirtDomainManager) setGuestTime(vmi *v1.VirtualMachineInstance) {
 	// It is not guaranteed that the time is actually set (it depends on guest
 	// environment, especially QEMU agent presence) or that the set time is
 	// very precise (NTP in the guest should take care of it if needed).
+	//
+	// Cancel any in-flight goroutine synchronously before spawning a new
+	// one, so the later caller always wins regardless of goroutine
+	// scheduling order.
+	ctx := l.getGuestTimeContext()
 
-	l.setTimeOnce.Do(func() {
-		go func() {
-			domName := api.VMINamespaceKeyFunc(vmi)
-			dom, err := l.virConn.LookupDomainByName(domName)
-			if err != nil {
-				log.Log.Object(vmi).Reason(err).Error(failedSyncGuestTime)
-				return
-			}
-			defer dom.Free()
-			// Syncing the guest time is a best-effort. Therefore
-			// don't flood the logs
-			var latestErr error
-			defer func() {
-				if latestErr != nil {
-					log.Log.Object(vmi).Warning(latestErr.Error())
-				}
-			}()
-
-			ctx := l.getGuestTimeContext()
-			timeout := time.After(60 * time.Second)
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-timeout:
-					log.Log.Object(vmi).Error(failedSyncGuestTime)
-					return
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					currTime := time.Now()
-					secs := currTime.Unix()
-					nsecs := uint(currTime.Nanosecond())
-					err := dom.SetTime(secs, nsecs, 0)
-					if err != nil {
-						libvirtError, ok := err.(libvirt.Error)
-						if !ok {
-							log.Log.Object(vmi).Reason(err).Warning(failedSyncGuestTime)
-							return
-						}
-
-						switch libvirtError.Code {
-						case libvirt.ERR_AGENT_UNRESPONSIVE:
-							const unresponsive = "failed to set time: QEMU agent unresponsive"
-							latestErr = fmt.Errorf("%s, %s", unresponsive, err)
-							log.Log.Object(vmi).Reason(err).V(9).Info(unresponsive)
-						case libvirt.ERR_OPERATION_UNSUPPORTED:
-							// no need to retry as this opertaion is not supported
-							log.Log.Object(vmi).Reason(err).Warning("failed to set time: not supported")
-							return
-						case libvirt.ERR_ARGUMENT_UNSUPPORTED:
-							// no need to retry as the agent is not configured
-							log.Log.Object(vmi).Reason(err).Warning("failed to set time: agent not configured")
-							return
-						default:
-							latestErr = fmt.Errorf("%s, %s", failedSyncGuestTime, err)
-							log.Log.Object(vmi).Reason(err).V(9).Info(failedSyncGuestTime)
-						}
-					} else {
-						latestErr = nil
-						log.Log.Object(vmi).Info("guest VM time sync finished successfully")
-						return
-					}
-				}
+	go func() {
+		domName := api.VMINamespaceKeyFunc(vmi)
+		dom, err := l.virConn.LookupDomainByName(domName)
+		if err != nil {
+			log.Log.Object(vmi).Reason(err).Error(failedSyncGuestTime)
+			return
+		}
+		defer dom.Free()
+		var latestErr error
+		defer func() {
+			if latestErr != nil {
+				log.Log.Object(vmi).Warning(latestErr.Error())
 			}
 		}()
-	})
+
+		timeout := time.After(60 * time.Second)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-timeout:
+				log.Log.Object(vmi).Error(failedSyncGuestTime)
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				currTime := time.Now()
+				secs := currTime.Unix()
+				nsecs := uint(currTime.Nanosecond())
+				err := dom.SetTime(secs, nsecs, 0)
+				if err != nil {
+					libvirtError, ok := err.(libvirt.Error)
+					if !ok {
+						log.Log.Object(vmi).Reason(err).Warning(failedSyncGuestTime)
+						return
+					}
+
+					switch libvirtError.Code {
+					case libvirt.ERR_AGENT_UNRESPONSIVE:
+						const unresponsive = "failed to set time: QEMU agent unresponsive"
+						latestErr = fmt.Errorf("%s, %s", unresponsive, err)
+						log.Log.Object(vmi).Reason(err).V(9).Info(unresponsive)
+					case libvirt.ERR_OPERATION_UNSUPPORTED:
+						log.Log.Object(vmi).Reason(err).Warning("failed to set time: not supported")
+						return
+					case libvirt.ERR_ARGUMENT_UNSUPPORTED:
+						log.Log.Object(vmi).Reason(err).Warning("failed to set time: agent not configured")
+						return
+					default:
+						latestErr = fmt.Errorf("%s, %s", failedSyncGuestTime, err)
+						log.Log.Object(vmi).Reason(err).V(9).Info(failedSyncGuestTime)
+					}
+				} else {
+					latestErr = nil
+					log.Log.Object(vmi).Info("guest VM time sync finished successfully")
+					return
+				}
+			}
+		}
+	}()
 }
 
 func (l *LibvirtDomainManager) getGuestTimeContext() context.Context {
@@ -1052,11 +1063,11 @@ func (l *LibvirtDomainManager) preStartHook(vmi *v1.VirtualMachineInstance, doma
 
 	// set drivers cache mode
 	for i := range domain.Spec.Devices.Disks {
-		err := converter.SetDriverCacheMode(&domain.Spec.Devices.Disks[i], l.directIOChecker)
+		err := l.driverConfigurator.SetDriverCacheMode(&domain.Spec.Devices.Disks[i])
 		if err != nil {
 			return domain, err
 		}
-		converter.SetOptimalIOMode(&domain.Spec.Devices.Disks[i], converter.IsPreAllocated) //nolint:staticcheck
+		l.driverConfigurator.SetOptimalIOMode(&domain.Spec.Devices.Disks[i])
 	}
 
 	if err := l.credManager.HandleQemuAgentAccessCredentials(vmi); err != nil {
@@ -1198,13 +1209,15 @@ func getUsableDiskSize(path string) (int64, error) {
 	}
 
 	availableSize := int64(statfs.Bavail) * int64(statfs.Bsize)
-	diskInfo, err := osdisk.GetDiskInfo(path)
+
+	var stat syscall.Stat_t
+	err = syscall.Stat(path, &stat)
 	if err != nil {
 		return int64(-1), err
 	}
-	usableSize := diskInfo.ActualSize + availableSize
+	actualSize := stat.Blocks * syscall.S_BLKSIZE
 
-	return usableSize, nil
+	return actualSize + availableSize, nil
 }
 
 func shouldExpandOffline(disk api.Disk) bool {
@@ -1602,11 +1615,11 @@ func (l *LibvirtDomainManager) syncDisks(
 		}
 		logger.V(1).Infof("Attaching disk %s, target %s", attachDisk.Alias.GetName(), attachDisk.Target.Device)
 		// set drivers cache mode
-		err = converter.SetDriverCacheMode(&attachDisk, l.directIOChecker)
+		err = l.driverConfigurator.SetDriverCacheMode(&attachDisk)
 		if err != nil {
 			return err
 		}
-		converter.SetOptimalIOMode(&attachDisk, converter.IsPreAllocated) //nolint:staticcheck
+		l.driverConfigurator.SetOptimalIOMode(&attachDisk)
 
 		attachBytes, err := xml.Marshal(attachDisk)
 		if err != nil {
@@ -2691,6 +2704,12 @@ func (l *LibvirtDomainManager) GetFilesystems() []v1.VirtualMachineInstanceFileS
 
 func (l *LibvirtDomainManager) GetGuestAgentVersion() string {
 	return l.agentData.GetGA().Version
+}
+
+func (l *LibvirtDomainManager) resetAgentDataCaches() {
+	for _, cache := range l.agentDataCaches {
+		cache.Reset()
+	}
 }
 
 func (l *LibvirtDomainManager) GetAgentData(dataKey string) (string, error) {

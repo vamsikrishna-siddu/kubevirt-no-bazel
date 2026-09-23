@@ -1252,7 +1252,6 @@ const (
 	// Set By VM controller on VMIs to ensure VMIs are processed by VM controller during deletion
 	VirtualMachineControllerFinalizer        string = "kubevirt.io/virtualMachineControllerFinalize"
 	VirtualMachineInstanceMigrationFinalizer string = "kubevirt.io/migrationJobFinalize"
-	DeprecatedCPUManager                     string = "cpumanager"
 	CPUManager                               string = "kubevirt.io/cpumanager"
 	// This annotation is used to inject ignition data
 	// Used on VirtualMachineInstance.
@@ -1311,9 +1310,6 @@ const (
 	CreateMigrationTarget = "kubevirt.io/create-migration-target"
 	// This annotation is to keep virt launcher container alive when an VMI encounters a failure for debugging purpose
 	KeepLauncherAfterFailureAnnotation string = "kubevirt.io/keep-launcher-alive-after-failure"
-
-	// MigrationTransportUnixAnnotation means that the VMI will be migrated using the unix URI
-	MigrationTransportUnixAnnotation string = "kubevirt.io/migrationTransportUnix"
 
 	// MigrationUnschedulablePodTimeoutSecondsAnnotation represents a custom timeout period used for unschedulable target pods
 	// This exists for functional testing
