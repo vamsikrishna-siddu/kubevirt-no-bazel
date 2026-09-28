@@ -120,6 +120,31 @@ BUILD_ARGS+=" --build-arg BUILD_ARCH=${BUILD_ARCH}"
 BUILD_ARGS+=" --build-arg BUILDER_IMAGE=${BUILDER_IMAGE}"
 BUILD_ARGS+=" --build-arg DISTROLESS_BASE_IMAGE=${DISTROLESS_BASE_IMAGE}"
 
+# Share one Go build cache across all image builds (and across runs) by
+# mounting a host directory over the builder's GOCACHE. Only podman supports
+# volumes during a build; docker builds run without the cache. The directory
+# must be outside the repo, since the whole repo is the build context.
+GO_BUILD_CACHE_DIR=${GO_BUILD_CACHE_DIR:-}
+GO_BUILD_CACHE_MOUNT=""
+if [[ -n "${GO_BUILD_CACHE_DIR}" ]]; then
+    mkdir -p "${GO_BUILD_CACHE_DIR}"
+    GO_BUILD_CACHE_DIR=$(cd "${GO_BUILD_CACHE_DIR}" && pwd)
+    if [[ "${GO_BUILD_CACHE_DIR}/" == "${KUBEVIRT_DIR}/"* ]]; then
+        echo "ERROR: GO_BUILD_CACHE_DIR (${GO_BUILD_CACHE_DIR}) must be outside ${KUBEVIRT_DIR}" >&2
+        exit 1
+    fi
+    if [[ "${KUBEVIRT_CRI}" == "podman" ]]; then
+        selinux_opt=""
+        if command -v selinuxenabled >/dev/null && selinuxenabled; then
+            selinux_opt=":z"
+        fi
+        GO_BUILD_CACHE_MOUNT="-v ${GO_BUILD_CACHE_DIR}:/root/.cache/go-build${selinux_opt}"
+        echo "Using Go build cache: ${GO_BUILD_CACHE_DIR}"
+    else
+        echo "WARNING: GO_BUILD_CACHE_DIR needs podman, building without it" >&2
+    fi
+fi
+
 default_targets="
     virt-operator
     virt-api
@@ -208,6 +233,9 @@ build_image() {
     echo "Building ${image_name} for ${BUILD_ARCH} (linux/${PLATFORM_ARCH})"
 
     local build_cmd="${KUBEVIRT_CRI} build ${BUILD_ARGS} --platform linux/${PLATFORM_ARCH}"
+    if [[ -n "${GO_BUILD_CACHE_MOUNT}" ]]; then
+        build_cmd+=" ${GO_BUILD_CACHE_MOUNT}"
+    fi
     if [[ -n "${extra_build_args}" ]]; then
         build_cmd+=" ${extra_build_args}"
     fi

@@ -47,6 +47,12 @@ push: bazel-push-images
 container-build-images:
 	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} DOCKER_TAG_ALT=${DOCKER_TAG_ALT} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_CRI=${KUBEVIRT_CRI} BUILDER_IMAGE=${BUILDER_IMAGE} ./hack/multi-arch-container.sh
 
+container-build-cache-restore:
+	BUILD_ARCH=${BUILD_ARCH} ./hack/go-test-cache.sh restore build
+
+container-build-cache-save: container-build-images
+	BUILD_ARCH=${BUILD_ARCH} ./hack/go-test-cache.sh save build
+
 container-push-images:
 	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_CRI=${KUBEVIRT_CRI} ./hack/multi-arch-push-container.sh
 
@@ -290,6 +296,8 @@ vmlog-checker:
 	bazel-push-images \
 	bazel-test \
 	container-build-images \
+	container-build-cache-restore \
+	container-build-cache-save \
 	container-push-images \
 	rpm-base-build \
 	rpm-base-push \

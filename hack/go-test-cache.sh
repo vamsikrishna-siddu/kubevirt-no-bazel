@@ -23,12 +23,22 @@
 # on all architectures including s390x where gsutil is unavailable.
 #
 # Usage:
-#   hack/go-test-cache.sh save    - Upload cache to GCS after tests
-#   hack/go-test-cache.sh restore - Download cache from GCS before testing
+#   hack/go-test-cache.sh save [test|build]    - Upload cache to GCS
+#   hack/go-test-cache.sh restore [test|build] - Download cache from GCS
+#
+# The kind defaults to "test". The two kinds are stored separately because
+# their cache entries do not overlap: unit tests build with -race for the
+# host architecture, image builds without it for BUILD_ARCH.
 #
 # Environment variables:
-#   GO_TEST_CACHE_BUCKET - GCS bucket for storing the cache (required)
-#                          e.g. "gs://kubevirt-prow/cache/go-test-cache"
+#   GO_TEST_CACHE_BUCKET  - GCS bucket for the test cache (required for "test")
+#                           e.g. "gs://kubevirt-prow/cache/go-test-cache"
+#   GO_BUILD_CACHE_BUCKET - GCS bucket for the image build cache (required
+#                           for "build")
+#   GO_BUILD_CACHE_DIR    - Host directory mounted as GOCACHE into the image
+#                           builds (required for "build")
+#   BUILD_ARCH            - Target architecture of the image builds (build
+#                           only, defaults to the host architecture)
 #   GOOGLE_APPLICATION_CREDENTIALS - Path to GCS service account key (required
 #                                    for GCS access)
 
@@ -40,36 +50,68 @@ log_warn() { echo "[go-test-cache] WARN:  $*" >&2; }
 log_error() { echo "[go-test-cache] ERROR: $*" >&2; }
 log_debug() { echo "[go-test-cache] DEBUG: $*"; }
 
-CACHE_DIR="${GOCACHE:-$(go env GOCACHE)}"
-CACHE_ARCHIVE="/tmp/go-test-cache.tar.gz"
-GO_TEST_CACHE_BUCKET="${GO_TEST_CACHE_BUCKET:-}"
+normalize_arch() {
+    case $1 in
+    x86_64* | amd64*) echo "amd64" ;;
+    aarch64* | arm64*) echo "arm64" ;;
+    s390x) echo "s390x" ;;
+    *) echo "$1" ;;
+    esac
+}
 
-if [ -z "${GO_TEST_CACHE_BUCKET}" ]; then
+ARCH=$(uname -m)
+CACHE_ARCH=$(normalize_arch "${ARCH}")
+CACHE_KIND="${2:-test}"
+
+case ${CACHE_KIND} in
+test)
+    CACHE_DIR="${GOCACHE:-$(go env GOCACHE)}"
+    BUCKET_VAR="GO_TEST_CACHE_BUCKET"
+    OBJECT_BASENAME="cache-${CACHE_ARCH}.tar.gz"
+    ;;
+build)
+    CACHE_DIR="${GO_BUILD_CACHE_DIR:-}"
+    if [ -z "${CACHE_DIR}" ]; then
+        if [ "${1:-}" = "restore" ]; then
+            log_info "GO_BUILD_CACHE_DIR not set, skipping cache restore"
+            exit 0
+        fi
+        log_error "GO_BUILD_CACHE_DIR must be set for the build cache"
+        exit 1
+    fi
+    BUCKET_VAR="GO_BUILD_CACHE_BUCKET"
+    # Cross-compiles use a different C compiler, which changes the cgo cache
+    # keys, so key by both the target and the build host architecture.
+    TARGET_ARCH=$(normalize_arch "${BUILD_ARCH:-${ARCH}}")
+    OBJECT_BASENAME="build-cache-${TARGET_ARCH}-on-${CACHE_ARCH}.tar.gz"
+    ;;
+*)
+    log_error "Unknown cache kind: ${CACHE_KIND} (expected test or build)"
+    exit 1
+    ;;
+esac
+
+CACHE_ARCHIVE="/tmp/go-${CACHE_KIND}-cache.tar.gz"
+CACHE_BUCKET="${!BUCKET_VAR:-}"
+
+if [ -z "${CACHE_BUCKET}" ]; then
     if [ "${1:-}" = "restore" ]; then
-        log_info "GO_TEST_CACHE_BUCKET not set, skipping cache restore"
+        log_info "${BUCKET_VAR} not set, skipping cache restore"
         exit 0
     fi
-    log_error "GO_TEST_CACHE_BUCKET must be set"
-    log_error "Example: export GO_TEST_CACHE_BUCKET=gs://kubevirt-prow/cache/go-test-cache"
+    log_error "${BUCKET_VAR} must be set"
+    log_error "Example: export ${BUCKET_VAR}=gs://kubevirt-prow/cache/go-${CACHE_KIND}-cache"
     exit 1
 fi
 
-ARCH=$(uname -m)
-case ${ARCH} in
-x86_64* | amd64*) CACHE_ARCH="amd64" ;;
-aarch64* | arm64*) CACHE_ARCH="arm64" ;;
-s390x) CACHE_ARCH="s390x" ;;
-*) CACHE_ARCH="${ARCH}" ;;
-esac
-
-GCS_BUCKET=$(echo "${GO_TEST_CACHE_BUCKET}" | sed 's|gs://||' | cut -d'/' -f1)
-GCS_PREFIX=$(echo "${GO_TEST_CACHE_BUCKET}" | sed 's|gs://[^/]*/||')
-GCS_OBJECT_NAME="${GCS_PREFIX}/cache-${CACHE_ARCH}.tar.gz"
+GCS_BUCKET=$(echo "${CACHE_BUCKET}" | sed 's|gs://||' | cut -d'/' -f1)
+GCS_PREFIX=$(echo "${CACHE_BUCKET}" | sed 's|gs://[^/]*/||')
+GCS_OBJECT_NAME="${GCS_PREFIX}/${OBJECT_BASENAME}"
 GCS_BASE_URL="https://storage.googleapis.com"
 
 # Print environment for debugging
 log_debug "Command: $0 ${1:-}"
-log_debug "Architecture: ${ARCH} -> ${CACHE_ARCH}"
+log_debug "Kind: ${CACHE_KIND}, architecture: ${ARCH} -> ${CACHE_ARCH}"
 log_debug "GOCACHE: ${CACHE_DIR}"
 log_debug "GCS_BUCKET: ${GCS_BUCKET}"
 log_debug "GCS_OBJECT_NAME: ${GCS_OBJECT_NAME}"
@@ -277,7 +319,9 @@ cache_restore() {
     log_info "=== Go Test Cache Restore ==="
 
     log_info "Downloading cache..."
-    if ! time gcs_download "${CACHE_ARCHIVE}"; then
+    # Braces keep "time" the shell keyword; after "!", bash 3.2 (macOS) runs
+    # /usr/bin/time instead, which cannot call a shell function.
+    if ! { time gcs_download "${CACHE_ARCHIVE}"; }; then
         log_warn "Cache restore failed — tests will run without cache (slower but functional)"
         return 0
     fi
@@ -307,7 +351,7 @@ restore)
     cache_restore
     ;;
 *)
-    log_error "Usage: $0 {save|restore}"
+    log_error "Usage: $0 {save|restore} [test|build]"
     exit 1
     ;;
 esac
