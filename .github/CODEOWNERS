@@ -1,0 +1,3 @@
+# kubevirt-no-bazel: request reviews from the VEP #392 (Remove Bazel) team
+# on every pull request. Approval rights come from the root OWNERS file.
+* @jschintag @Whitedyl

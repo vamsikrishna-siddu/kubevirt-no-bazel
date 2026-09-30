@@ -4,8 +4,18 @@ filters:
   ".*":
     reviewers:
       - code-reviewers
+      - jschintag
+      - brianmcarey
+      - Whitedyl
+      - dhiller
+      - dollierp
     approvers:
       - approvers
+      - jschintag
+      - brianmcarey
+      - Whitedyl
+      - dhiller
+      - dollierp
     emeritus_approvers:
       - emeritus_approvers
   "BUILD\\.bazel|.*\\.bzl|WORKSPACE|Makefile|\\.bazelrc|ci\\.bazelrc|\\.bazelversion|nogo_config\\.json":
