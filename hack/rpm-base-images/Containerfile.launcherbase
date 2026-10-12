@@ -1,0 +1,48 @@
+#
+# This file is part of the KubeVirt project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Copyright The KubeVirt Authors.
+#
+
+# hack/rpm-base-images/build-base-images.sh sets BUILDER_IMAGE.
+ARG BUILDER_IMAGE
+
+FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS rpm-builder
+
+ARG TARGETARCH
+ARG CENTOS_STREAM_VERSION=9
+
+WORKDIR /workspace
+COPY launcherbase_*_cs${CENTOS_STREAM_VERSION}.tar rpm-tars/
+
+RUN case ${TARGETARCH} in \
+        amd64) BAZEL_ARCH="x86_64" ;; \
+        arm64) BAZEL_ARCH="aarch64" ;; \
+        s390x) BAZEL_ARCH="s390x" ;; \
+        *) echo "ERROR: Unsupported TARGETARCH: ${TARGETARCH}"; exit 1 ;; \
+    esac && \
+    mkdir -p /rootfs /rootfs/etc && \
+    tar -xf rpm-tars/launcherbase_${BAZEL_ARCH}_cs${CENTOS_STREAM_VERSION}.tar -C /rootfs \
+        --transform='s,^\./var/run/,./run/,x' --overwrite && \
+    if [ ! -L /rootfs/var/run ]; then ln -s ../run /rootfs/var/run; fi
+
+RUN echo "root:x:0:0:root:/root:/bin/bash" > /rootfs/etc/passwd && \
+    echo "qemu:x:107:107:qemu:/home/qemu:/bin/bash" >> /rootfs/etc/passwd && \
+    echo "root:x:0:" > /rootfs/etc/group && \
+    echo "qemu:x:107:" >> /rootfs/etc/group
+
+FROM scratch
+
+COPY --from=rpm-builder /rootfs/ /
