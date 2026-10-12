@@ -25,6 +25,8 @@ if [ "$build_count" -lt 2 ]; then
     exit 0
 fi
 
+DOCKER_TAG=${DOCKER_TAG:-latest}
+
 fail_if_cri_bin_missing
 
 function podman_push_manifest() {

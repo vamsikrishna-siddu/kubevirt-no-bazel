@@ -22,12 +22,12 @@ bazel-generate:
 	SYNC_VENDOR=true hack/dockerized "./hack/bazel-generate.sh"
 
 bazel-build:
-	hack/dockerized "export BUILD_ARCH=${BUILD_ARCH} && export DOCKER_TAG=${DOCKER_TAG} && export CI=${CI} && export KUBEVIRT_RELEASE=${KUBEVIRT_RELEASE} && hack/bazel-fmt.sh && ./hack/multi-arch.sh build"
+	hack/dockerized "export BUILD_ARCH=${BUILD_ARCH} && export DOCKER_TAG=${DOCKER_TAG} && export CI=${CI} && export KUBEVIRT_RELEASE=${KUBEVIRT_RELEASE} && hack/bazel-fmt.sh && ./hack/multi-arch.sh hack/bazel-build.sh"
 
 bazel-build-functests:
 	hack/dockerized "hack/bazel-fmt.sh && hack/bazel-build-functests.sh"
 
-build-functests: bazel-build-functests
+build-functests: go-build-functests
 
 bazel-build-verify: bazel-build
 	./hack/dockerized "hack/bazel-fmt.sh"
@@ -36,19 +36,20 @@ bazel-build-verify: bazel-build
 	./hack/dockerized "hack/bazel-test.sh"
 
 bazel-build-images:
-	hack/dockerized "export BUILD_ARCH=${BUILD_ARCH} && DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} DOCKER_TAG_ALT=${DOCKER_TAG_ALT} IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT} ./hack/multi-arch.sh build-images"
+	hack/dockerized "export BUILD_ARCH=${BUILD_ARCH} && DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} DOCKER_TAG_ALT=${DOCKER_TAG_ALT} IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT} ./hack/multi-arch.sh hack/bazel-build-images.sh"
 
 bazel-push-images:
-	hack/dockerized "export BUILD_ARCH=${BUILD_ARCH} && hack/bazel-fmt.sh && DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} DOCKER_TAG_ALT=${DOCKER_TAG_ALT} IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT} KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER} PUSH_TARGETS='${PUSH_TARGETS}' ./hack/multi-arch.sh push-images"
+	hack/dockerized "export BUILD_ARCH=${BUILD_ARCH} && hack/bazel-fmt.sh && DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} DOCKER_TAG_ALT=${DOCKER_TAG_ALT} IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_PREFIX_ALT=${IMAGE_PREFIX_ALT} KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER} PUSH_TARGETS='${PUSH_TARGETS}' ./hack/multi-arch.sh hack/bazel-push-images.sh"
 	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} hack/push-container-manifest.sh
 
 push: bazel-push-images
 
 container-build-images:
-	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_CRI=${KUBEVIRT_CRI} BUILDER_IMAGE=${BUILDER_IMAGE} ./hack/multi-arch-container.sh
+	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_CRI=${KUBEVIRT_CRI} BUILDER_IMAGE=${BUILDER_IMAGE} ./hack/multi-arch.sh hack/build-images-container.sh
 
 container-push-images:
-	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_CRI=${KUBEVIRT_CRI} ./hack/multi-arch-push-container.sh
+	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} IMAGE_PREFIX=${IMAGE_PREFIX} KUBEVIRT_CRI=${KUBEVIRT_CRI} ./hack/multi-arch.sh hack/push-images-container.sh
+	BUILD_ARCH=${BUILD_ARCH} DOCKER_PREFIX=${DOCKER_PREFIX} DOCKER_TAG=${DOCKER_TAG} KUBEVIRT_CRI=${KUBEVIRT_CRI} hack/push-container-manifest.sh
 
 rpm-base-build:
 	./hack/rpm-base-images/build-base-images.sh
@@ -116,7 +117,7 @@ integ-test:
 functest: build-functests
 	hack/functests.sh
 
-dump: bazel-build
+dump: go-build-functests
 	hack/dump.sh
 
 functest-image-build: manifests build-functests
