@@ -1,0 +1,4 @@
+# The images build their own _out inside the builder stage. Copying the
+# host's build output would only enlarge every build context, and since it
+# changes during a build, no image could reuse the cached COPY layer.
+_out/
