@@ -1,0 +1,19 @@
+# RPM base images used by the component image builds
+# (hack/build-images-container.sh), pinned by digest so every build uses the
+# same base layers.
+#
+# push-base-images.sh builds and pushes the images and updates their entries.
+# To move to new RPMs:
+#   make rpm-base-push
+# and commit the changed digests.
+#
+# Format: IMAGE_NAME=REGISTRY/IMAGE@DIGEST
+
+launcherbase=quay.io/vamsi_siddu/launcherbase@sha256:ecf931708443404f8acbdf61a688abb9a0b9a94bc68d3fd7a7ffaa5f6fa8c112
+libvirt-devel=quay.io/vamsi_siddu/libvirt-devel@sha256:9ac5675ad7d0c986e5af857960348f6c600e93585d311a825fa3885b93af28ea
+handlerbase=quay.io/vamsi_siddu/handlerbase@sha256:05524be1d99120ee6512f3c2625cee83ad9efd54f0fa941335610151890d543e
+exportserverbase=quay.io/vamsi_siddu/exportserverbase@sha256:30108247ece988cdc70c461dfddb255ed5559e0b125a547ed7f82d7c74525a20
+libguestfs-tools=quay.io/vamsi_siddu/libguestfs-tools@sha256:a527bd2a523f3cdb1bab504e971fa69ecf4995ca8764033ab5cbd300cbdc1388
+pr-helper=quay.io/vamsi_siddu/pr-helper@sha256:5915f2640afcf901f5e9822f256b89758bee6e30e49c383e7523ffc4fcd73c6e
+sidecar-shim=quay.io/vamsi_siddu/sidecar-shim@sha256:b0d11443361f437401bd264dd22f30b4678a71b1f80f25fe98824664d5874f9c
+testimage=quay.io/vamsi_siddu/testimage@sha256:cf2a5e3a4a5abb9781fb92fec51c8a7c04f67775da2e0c4397f3eae423cf5ec7

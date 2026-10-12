@@ -1,0 +1,33 @@
+# hack/rpm-base-images/build-base-images.sh sets BUILDER_IMAGE.
+ARG BUILDER_IMAGE
+
+FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS rpm-builder
+
+ARG TARGETARCH
+ARG CENTOS_STREAM_VERSION=9
+
+WORKDIR /workspace
+COPY testimage_*_cs${CENTOS_STREAM_VERSION}.tar rpm-tars/
+
+RUN case ${TARGETARCH} in \
+        amd64) BAZEL_ARCH="x86_64" ;; \
+        arm64) BAZEL_ARCH="aarch64" ;; \
+        s390x) BAZEL_ARCH="s390x" ;; \
+        *) echo "ERROR: Unsupported TARGETARCH: ${TARGETARCH}"; exit 1 ;; \
+    esac && \
+    mkdir -p /rootfs && \
+    tar -xf rpm-tars/testimage_${BAZEL_ARCH}_cs${CENTOS_STREAM_VERSION}.tar -C /rootfs \
+        --exclude='./var/run/*' && \
+    if [ ! -L /rootfs/var/run ]; then \
+        rm -rf /rootfs/var/run && \
+        ln -s ../run /rootfs/var/run; \
+    fi
+
+RUN echo "root:x:0:0:root:/root:/bin/bash" > /rootfs/etc/passwd && \
+    echo "nginx:x:101:101:nginx:/:/bin/bash" >> /rootfs/etc/passwd && \
+    echo "root:x:0:" > /rootfs/etc/group && \
+    echo "nginx:x:101:" >> /rootfs/etc/group
+
+FROM scratch
+
+COPY --from=rpm-builder /rootfs /

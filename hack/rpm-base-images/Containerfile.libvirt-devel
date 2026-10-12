@@ -1,0 +1,26 @@
+# hack/rpm-base-images/build-base-images.sh sets BUILDER_IMAGE.
+ARG BUILDER_IMAGE
+
+FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS rpm-builder
+
+ARG TARGETARCH
+ARG CENTOS_STREAM_VERSION=9
+
+WORKDIR /workspace
+COPY libvirt-devel_*_cs${CENTOS_STREAM_VERSION}.tar libnbd-devel_*_cs${CENTOS_STREAM_VERSION}.tar rpm-tars/
+
+RUN case ${TARGETARCH} in \
+        amd64) BAZEL_ARCH="x86_64" ;; \
+        arm64) BAZEL_ARCH="aarch64" ;; \
+        s390x) BAZEL_ARCH="s390x" ;; \
+        *) echo "ERROR: Unsupported TARGETARCH: ${TARGETARCH}"; exit 1 ;; \
+    esac && \
+    mkdir -p /devel && \
+    tar -xf rpm-tars/libvirt-devel_${BAZEL_ARCH}_cs${CENTOS_STREAM_VERSION}.tar -C /devel --overwrite && \
+    tar -xf rpm-tars/libnbd-devel_${BAZEL_ARCH}_cs${CENTOS_STREAM_VERSION}.tar -C /devel --overwrite
+
+FROM scratch
+
+COPY --from=rpm-builder /devel/usr/lib64/pkgconfig /usr/lib64/pkgconfig
+COPY --from=rpm-builder /devel/usr/include /usr/include
+COPY --from=rpm-builder /devel/usr/lib64 /usr/lib64
