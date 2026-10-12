@@ -148,6 +148,8 @@ echo "Pushing images..."
 for arch in ${BUILD_ARCH//,/ }; do
     targets=$(push_targets ${arch})
     arch=$(format_archname ${arch})
+    # Start without the markers of earlier pushes
+    rm -rf "${DIGESTS_DIR}/${arch}"
     if [ "$build_count" -gt 1 ]; then
         echo "=========================================="
         echo "Architecture: ${arch}"
