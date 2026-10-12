@@ -1,0 +1,25 @@
+# hack/build-images-container.sh sets the image build arguments.
+ARG BUILDER_IMAGE
+
+FROM ${BUILDER_IMAGE} AS builder
+
+ARG BUILD_ARCH=amd64
+ARG KUBEVIRT_VERSION
+
+WORKDIR /workspace
+
+COPY . .
+
+RUN source /etc/profile.d/gimme.sh && \
+    CGO_ENABLED=0 BIN_NAME=example-node-hook-plugin hack/build-go.sh install cmd/example-node-hook-plugin
+
+RUN echo "nonroot-user:x:1001:1001:nonroot user:/home/nonroot-user:/sbin/nologin" > /tmp/passwd
+
+FROM scratch
+
+COPY --from=builder /workspace/_out/cmd/example-node-hook-plugin/example-node-hook-plugin /usr/bin/example-node-hook-plugin
+COPY --from=builder /tmp/passwd /etc/passwd
+
+USER 1001
+
+ENTRYPOINT ["/usr/bin/example-node-hook-plugin"]
