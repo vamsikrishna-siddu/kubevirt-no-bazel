@@ -49,3 +49,67 @@ get_push_flags() {
         echo "--tls-verify=false"
     fi
 }
+
+# Print the images that the container build builds and pushes for the
+# architecture $1, as hack/bazel-push-images.sh does for Bazel. The name is
+# normalized first, so e.g. s390x and crossbuild-s390x give the same list.
+container_image_targets() {
+    local arch
+    arch=$(format_archname "$1" tag) || return 1
+
+    local targets="
+        virt-operator
+        virt-api
+        virt-controller
+        virt-handler
+        virt-launcher
+        virt-exportserver
+        virt-exportproxy
+        virt-synchronization-controller
+        alpine-container-disk-demo
+        fedora-with-test-tooling-container-disk
+        alpine-with-test-tooling-container-disk
+        vm-killer
+        sidecar-shim
+        disks-images-provider
+        test-helpers
+    "
+
+    # Bazel's arm64 libguestfs-tools image falls back to the x86_64 layers,
+    # so it is not built for arm64.
+    if [[ "${arch}" != "arm64" ]]; then
+        targets+=" libguestfs-tools"
+    fi
+
+    if [[ "${arch}" == "s390x" ]]; then
+        targets+=" s390x-guestless-kernel"
+    fi
+
+    if [[ "${arch}" == "amd64" ]]; then
+        targets+="
+            fedora-realtime-container-disk
+            network-passt-binding-cni
+            alpine-ext-kernel-boot-demo
+        "
+    fi
+
+    if [[ "${arch}" != "s390x" ]]; then
+        targets+="
+            conformance
+            pr-helper
+            example-hook-sidecar
+            example-disk-mutation-hook-sidecar
+            example-cloudinit-hook-sidecar
+            example-node-hook-plugin
+            test-launcher-hook-sidecar
+            cirros-container-disk-demo
+            cirros-custom-container-disk-demo
+            virtio-container-disk
+            winrmcli
+            network-passt-binding
+            test-network-vhostuser-dra-binding
+        "
+    fi
+
+    echo ${targets}
+}
