@@ -1,7 +1,7 @@
 # hack/build-images-container.sh sets the image build arguments.
 ARG BUILDER_IMAGE
 
-FROM ${BUILDER_IMAGE} AS builder
+FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS builder
 
 ARG BUILD_ARCH=amd64
 ARG KUBEVIRT_VERSION

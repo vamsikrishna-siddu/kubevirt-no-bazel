@@ -38,11 +38,28 @@ esac
 
 IMAGE_PREFIX=${IMAGE_PREFIX:-}
 
-# Builder image configuration
-BUILDER_VERSION=$(grep 'kubevirt_builder_version=' hack/dockerized | cut -d'"' -f2)
-BUILDER_IMAGE=${BUILDER_IMAGE:-quay.io/vamsi_siddu/builder:${BUILDER_VERSION}}
+# The builder images pinned in hack/dockerized
+eval "$(grep -E '^(kubevirt(_cs10)?_builder_version|default_kubevirt(_cs10)?_builder_image|kubevirt(_cs10)?_cross_compile_image)=' hack/dockerized)"
 
 PLATFORM_ARCH=$(format_archname ${BUILD_ARCH} tag)
+HOST_PLATFORM_ARCH=$(format_archname "$(uname -m)" tag)
+
+# The builder stage runs on the build host, so building for another
+# architecture needs the cross compilers from the builder-cross image.
+# hack/dockerized picks the same image for its own builds.
+if [ -z "${BUILDER_IMAGE}" ]; then
+    if [ "${KUBEVIRT_CENTOS_STREAM_VERSION}" == "10" ]; then
+        BUILDER_IMAGE=${default_kubevirt_cs10_builder_image}
+        CROSS_IMAGE=${kubevirt_cs10_cross_compile_image}
+    else
+        BUILDER_IMAGE=${default_kubevirt_builder_image}
+        CROSS_IMAGE=${kubevirt_cross_compile_image}
+    fi
+    if [ "${PLATFORM_ARCH}" != "${HOST_PLATFORM_ARCH}" ]; then
+        echo "Cross-compiling for ${PLATFORM_ARCH} on ${HOST_PLATFORM_ARCH}: using ${CROSS_IMAGE}"
+        BUILDER_IMAGE="${CROSS_IMAGE}"
+    fi
+fi
 
 # Print the digest of the pull() rule named $1 in WORKSPACE. The Bazel build
 # pins these images there and the bump scripts update them, so read them
