@@ -45,5 +45,6 @@ _ci-configs/
 hack/builder/manifests/
 *~
 .bazeldnf/
+.libvirt-devel/
 user.bazelrc
 .vscode/

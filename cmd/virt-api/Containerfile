@@ -1,31 +1,14 @@
+# hack/build-image-binaries.sh compiles the programs into _out/cmd/, and
 # hack/build-images-container.sh sets the image build arguments.
-ARG BUILDER_IMAGE
 ARG DISTROLESS_BASE_IMAGE
-
-FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS builder
-
-ARG BUILD_ARCH=amd64
-ARG KUBEVIRT_VERSION
-
-WORKDIR /workspace
-
-COPY . .
-
-RUN source /etc/profile.d/gimme.sh && \
-    BIN_NAME=virt-api hack/build-go.sh install cmd/virt-api
-
-RUN echo "nonroot-user:x:1001:1001:nonroot user:/home/nonroot-user:/sbin/nologin" > /tmp/passwd
 
 FROM ${DISTROLESS_BASE_IMAGE}
 
-ARG BUILD_ARCH=amd64
-ARG KUBEVIRT_VERSION
+COPY _out/cmd/virt-api/virt-api /usr/bin/virt-api
 
-COPY --from=builder /workspace/_out/cmd/virt-api/virt-api /usr/bin/virt-api
+COPY .version /.version
 
-COPY --from=builder /workspace/.version /.version
-
-COPY --from=builder --chmod=0644 /tmp/passwd /etc/passwd
+COPY --chmod=0644 .passwd /etc/passwd
 
 USER 1001
 
