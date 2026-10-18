@@ -1,32 +1,14 @@
+# hack/build-image-binaries.sh compiles the programs into _out/cmd/, and
 # hack/build-images-container.sh sets the image build arguments.
-ARG BUILDER_IMAGE
 ARG DISTROLESS_BASE_IMAGE
-
-FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS builder
-
-ARG BUILD_ARCH=amd64
-ARG KUBEVIRT_VERSION
-
-WORKDIR /workspace
-
-COPY . .
-
-RUN source /etc/profile.d/gimme.sh && \
-    BIN_NAME=conformance hack/build-go.sh install tests/conformance
-
-RUN echo "nonroot-user:x:1001:1001:nonroot user:/home/nonroot-user:/sbin/nologin" > /tmp/passwd && \
-    cp /workspace/.version /workspace/get-version
 
 FROM ${DISTROLESS_BASE_IMAGE}
 
-ARG BUILD_ARCH=amd64
-ARG KUBEVIRT_VERSION
+COPY _out/cmd/conformance/conformance /usr/bin/conformance
 
-COPY --from=builder /workspace/_out/cmd/conformance/conformance /usr/bin/conformance
+COPY .version /get-version
 
-COPY --from=builder /workspace/get-version /get-version
-
-COPY --from=builder --chmod=0644 /tmp/passwd /etc/passwd
+COPY --chmod=0644 .passwd /etc/passwd
 
 USER 1001
 

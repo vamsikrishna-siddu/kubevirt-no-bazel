@@ -1,26 +1,9 @@
+# hack/build-image-binaries.sh compiles the programs into _out/cmd/, and
 # hack/build-images-container.sh sets the image build arguments.
-ARG BUILDER_IMAGE
 ARG SIDECAR_SHIM_IMAGE
-
-FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS builder
-
-ARG BUILD_ARCH=amd64
-ARG KUBEVIRT_VERSION
-
-WORKDIR /workspace
-
-COPY . .
-
-RUN source /etc/profile.d/gimme.sh && \
-    CGO_ENABLED=0 BIN_NAME=smbios hack/build-go.sh install cmd/sidecars/smbios
-
-RUN cp /workspace/_out/cmd/smbios/smbios /tmp/onDefineDomain
 
 FROM ${SIDECAR_SHIM_IMAGE}
 
-ARG BUILD_ARCH=amd64
-ARG KUBEVIRT_VERSION
+COPY _out/cmd/smbios/smbios /usr/bin/onDefineDomain
 
-COPY --from=builder /tmp/onDefineDomain /usr/bin/onDefineDomain
-
-COPY --from=builder /workspace/.version /.version
+COPY .version /.version
