@@ -23,6 +23,10 @@ source hack/config.sh
 source hack/version.sh
 source hack/container-utils.sh
 
+# The download cache of hack/build-container-disks.sh, for the Alpine ISO
+RPMTREE_CACHE_DIR=${CACHE_DIR:-_out/container-disks}
+source hack/rpmtree-utils.sh
+
 echo "Using container engine: ${KUBEVIRT_CRI}"
 
 PLATFORM=$(uname -m)
@@ -39,25 +43,18 @@ esac
 IMAGE_PREFIX=${IMAGE_PREFIX:-}
 
 # The builder images pinned in hack/dockerized
-eval "$(grep -E '^(kubevirt(_cs10)?_builder_version|default_kubevirt(_cs10)?_builder_image|kubevirt(_cs10)?_cross_compile_image)=' hack/dockerized)"
+eval "$(grep -E '^(kubevirt(_cs10)?_builder_version|default_kubevirt(_cs10)?_builder_image)=' hack/dockerized)"
 
 PLATFORM_ARCH=$(format_archname ${BUILD_ARCH} tag)
-HOST_PLATFORM_ARCH=$(format_archname "$(uname -m)" tag)
 
-# The builder stage runs on the build host, so building for another
-# architecture needs the cross compilers from the builder-cross image.
-# hack/dockerized picks the same image for its own builds.
+# The builder of the disks-images-provider and winrmcli builder stages, which
+# run on the build host. hack/build-image-binaries.sh compiles the KubeVirt
+# programs with hack/dockerized instead.
 if [ -z "${BUILDER_IMAGE}" ]; then
     if [ "${KUBEVIRT_CENTOS_STREAM_VERSION}" == "10" ]; then
         BUILDER_IMAGE=${default_kubevirt_cs10_builder_image}
-        CROSS_IMAGE=${kubevirt_cs10_cross_compile_image}
     else
         BUILDER_IMAGE=${default_kubevirt_builder_image}
-        CROSS_IMAGE=${kubevirt_cross_compile_image}
-    fi
-    if [ "${PLATFORM_ARCH}" != "${HOST_PLATFORM_ARCH}" ]; then
-        echo "Cross-compiling for ${PLATFORM_ARCH} on ${HOST_PLATFORM_ARCH}: using ${CROSS_IMAGE}"
-        BUILDER_IMAGE="${CROSS_IMAGE}"
     fi
 fi
 
@@ -89,16 +86,19 @@ virt_template_digest() {
     echo "${digest}"
 }
 
-# Distroless base image per architecture, as in the Bazel build
+# Distroless base image and Alpine ISO per architecture, as in the Bazel build
 case ${PLATFORM_ARCH} in
 amd64)
     DISTROLESS_DIGEST=$(workspace_digest go_image_base)
+    ALPINE_ISO_ENTRY=alpine_image
     ;;
 arm64)
     DISTROLESS_DIGEST=$(workspace_digest go_image_base_aarch64)
+    ALPINE_ISO_ENTRY=alpine_image_aarch64
     ;;
 s390x)
     DISTROLESS_DIGEST=$(workspace_digest go_image_base_s390x)
+    ALPINE_ISO_ENTRY=alpine_image_s390x
     ;;
 *)
     echo "Error: Unsupported architecture ${PLATFORM_ARCH} (from BUILD_ARCH=${BUILD_ARCH})"
@@ -141,10 +141,7 @@ PR_HELPER_BASE_IMAGE=${PR_HELPER_BASE_IMAGE:-$(base_image pr-helper)}
 SIDECAR_SHIM_BASE_IMAGE=${SIDECAR_SHIM_BASE_IMAGE:-$(base_image sidecar-shim)}
 TESTIMAGE_BASE_IMAGE=${TESTIMAGE_BASE_IMAGE:-$(base_image testimage)}
 
-BUILD_ARGS="--build-arg KUBEVIRT_VERSION=${KUBEVIRT_VERSION}"
-BUILD_ARGS+=" --build-arg BUILD_ARCH=${BUILD_ARCH}"
-BUILD_ARGS+=" --build-arg BUILDER_IMAGE=${BUILDER_IMAGE}"
-BUILD_ARGS+=" --build-arg DISTROLESS_BASE_IMAGE=${DISTROLESS_BASE_IMAGE}"
+BUILD_ARGS="--build-arg DISTROLESS_BASE_IMAGE=${DISTROLESS_BASE_IMAGE}"
 
 # The images that push-images-container.sh pushes, plus the virt-template
 # images: those are only retagged here, because the operator deploys them
@@ -215,6 +212,14 @@ is_container_disk_image() {
         return 0
         ;;
     *) return 1 ;;
+    esac
+}
+
+# Whether the image $1 copies programs that hack/build-image-binaries.sh compiles
+needs_programs() {
+    case "$1" in
+    disks-images-provider | vm-killer | winrmcli | libguestfs-tools | pr-helper) return 1 ;;
+    *) return 0 ;;
     esac
 }
 
@@ -297,9 +302,11 @@ retag_single_image() {
 
 setup_buildah_context
 
-# The images ship the version in /.version, like Bazel's get-version rule
-trap 'rm -f .version' EXIT
+# The images ship the version in /.version, like Bazel's get-version rule,
+# and most of them run as nonroot-user, like Bazel's passwd rule
+trap 'rm -f .version .passwd' EXIT
 echo "${KUBEVIRT_GIT_VERSION}" >.version
+echo "nonroot-user:x:1001:1001:nonroot user:/home/nonroot-user:/sbin/nologin" >.passwd
 
 echo "Building KubeVirt Images with ${KUBEVIRT_CRI}"
 echo "Architecture: ${BUILD_ARCH}"
@@ -311,6 +318,7 @@ echo "Targets: ${BUILD_TARGETS[@]}"
 CONTAINER_DISK_IMAGES=""
 REGULAR_BUILD_IMAGES=""
 NEEDS_SIDECAR_SHIM=false
+NEEDS_PROGRAMS=false
 
 for image in ${BUILD_TARGETS[@]}; do
     if is_retagged_image "${image}"; then
@@ -322,8 +330,18 @@ for image in ${BUILD_TARGETS[@]}; do
         if [[ "${image}" == "example-hook-sidecar" || "${image}" == "example-cloudinit-hook-sidecar" || "${image}" == "example-disk-mutation-hook-sidecar" ]]; then
             NEEDS_SIDECAR_SHIM=true
         fi
+        if needs_programs "${image}"; then
+            NEEDS_PROGRAMS=true
+        fi
     fi
 done
+
+if [[ "${NEEDS_PROGRAMS}" == "true" ]]; then
+    # hack/dockerized picks the cross-compile builder when BUILD_ARCH is not the
+    # host's architecture
+    BUILD_ARCH=${PLATFORM_ARCH} hack/dockerized \
+        "BUILD_ARCH=${PLATFORM_ARCH} LIBVIRT_DEVEL_IMAGE=${LIBVIRT_DEVEL_IMAGE} ./hack/build-image-binaries.sh"
+fi
 
 if [[ "${NEEDS_SIDECAR_SHIM}" == "true" ]]; then
     if [[ ! " ${BUILD_TARGETS[@]} " =~ " sidecar-shim " ]]; then
@@ -357,16 +375,22 @@ for image in ${REGULAR_BUILD_IMAGES}; do
     fi
 
     extra_args=""
-    if [[ "${image}" == "disks-images-provider" || "${image}" == "winrmcli" || "${image}" == "vm-killer" ]]; then
+    if [[ "${image}" == "disks-images-provider" || "${image}" == "winrmcli" ]]; then
+        extra_args="--build-arg TESTING_BASE_IMAGE=${TESTIMAGE_BASE_IMAGE}"
+        extra_args+=" --build-arg BUILDER_IMAGE=${BUILDER_IMAGE}"
+        if [[ "${image}" == "disks-images-provider" ]]; then
+            alpine_iso=$(rpmtree::fetch "${ALPINE_ISO_ENTRY}")
+            extra_args+=" --build-context alpine-iso=$(dirname "${alpine_iso}")"
+            extra_args+=" --build-arg ALPINE_ISO=$(basename "${alpine_iso}")"
+        fi
+    elif [[ "${image}" == "vm-killer" ]]; then
         extra_args="--build-arg TESTING_BASE_IMAGE=${TESTIMAGE_BASE_IMAGE}"
     elif [[ "${image}" == "example-hook-sidecar" || "${image}" == "example-cloudinit-hook-sidecar" || "${image}" == "example-disk-mutation-hook-sidecar" ]]; then
         extra_args="--build-arg SIDECAR_SHIM_IMAGE=${docker_prefix}/${IMAGE_PREFIX}sidecar-shim:${docker_tag}"
     elif [[ "${image}" == "virt-launcher" ]]; then
         extra_args="--build-arg LAUNCHERBASE_IMAGE=${LAUNCHERBASE_IMAGE}"
-        extra_args+=" --build-arg LIBVIRT_DEVEL_IMAGE=${LIBVIRT_DEVEL_IMAGE}"
     elif [[ "${image}" == "virt-handler" ]]; then
         extra_args="--build-arg HANDLERBASE_IMAGE=${HANDLERBASE_IMAGE}"
-        extra_args+=" --build-arg LIBVIRT_DEVEL_IMAGE=${LIBVIRT_DEVEL_IMAGE}"
     elif [[ "${image}" == "virt-exportserver" ]]; then
         extra_args="--build-arg EXPORTSERVERBASE_IMAGE=${EXPORTSERVERBASE_IMAGE}"
     elif [[ "${image}" == "libguestfs-tools" ]]; then

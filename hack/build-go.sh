@@ -119,9 +119,12 @@ function pkg_dir() {
 # handle binaries
 
 if [ "${target}" = "install" ]; then
-    # Delete all binaries which are not present in the binaries variable to avoid branch inconsistencies
-    to_delete=$(comm -23 <(find ${CMD_OUT_DIR} -mindepth 1 -maxdepth 1 -type d | sort) <(echo $binaries | sed -e 's/cmd\///g' -e 's/ /\n/g' | sed -e "s#^#${CMD_OUT_DIR}/#" | sort))
-    rm -rf ${to_delete}
+    # Delete all binaries which are not present in the binaries variable to avoid branch inconsistencies.
+    # hack/build-image-binaries.sh installs in several calls and keeps them all.
+    if [ "${KUBEVIRT_KEEP_OTHER_BINARIES}" != "true" ]; then
+        to_delete=$(comm -23 <(find ${CMD_OUT_DIR} -mindepth 1 -maxdepth 1 -type d | sort) <(echo $binaries | sed -e 's/cmd\///g' -e 's/ /\n/g' | sed -e "s#^#${CMD_OUT_DIR}/#" | sort))
+        rm -rf ${to_delete}
+    fi
 
     (
         if [ -z "$BIN_NAME" ] || [[ $BIN_NAME == *"container-disk"* ]]; then

@@ -1,24 +1,36 @@
+#
+# This file is part of the KubeVirt project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Copyright The KubeVirt Authors.
+#
+
 # hack/build-images-container.sh sets the image build arguments.
 ARG BUILDER_IMAGE
 ARG TESTING_BASE_IMAGE
 
 FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS builder
 
-ARG BUILD_ARCH=amd64
+# The builder runs on the build host, so both binaries need the target GOARCH
+ARG TARGETARCH
 
 WORKDIR /workspace
-
-# The builder runs on the build host, so both binaries need the target GOARCH
-RUN case ${BUILD_ARCH} in \
-        arm64|aarch64|crossbuild-aarch64) echo arm64 ;; \
-        s390x|crossbuild-s390x) echo s390x ;; \
-        *) echo amd64 ;; \
-    esac > /tmp/goarch
 
 RUN source /etc/profile.d/gimme.sh && \
     git clone https://github.com/masterzen/winrm-cli.git && \
     cd winrm-cli && \
-    GOOS=linux GOARCH=$(cat /tmp/goarch) go build -o /tmp/winrm-cli
+    GOOS=linux GOARCH=${TARGETARCH} go build -o /tmp/winrm-cli
 
 # Build winrmcp (no go.mod in upstream repo)
 RUN source /etc/profile.d/gimme.sh && \
@@ -27,7 +39,7 @@ RUN source /etc/profile.d/gimme.sh && \
     git checkout c76d91c1e7db27b0868c5d09e292bb540616c9a2 && \
     go mod init github.com/packer-community/winrmcp && \
     go mod tidy && \
-    GOOS=linux GOARCH=$(cat /tmp/goarch) go build -o /tmp/winrmcp
+    GOOS=linux GOARCH=${TARGETARCH} go build -o /tmp/winrmcp
 
 FROM ${TESTING_BASE_IMAGE}
 
