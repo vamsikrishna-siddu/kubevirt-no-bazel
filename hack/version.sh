@@ -116,9 +116,8 @@ function kubevirt::version::ldflags() {
         ldflags+=($(kubevirt::version::ldflag ${version_pkg} "gitTreeState" "${KUBEVIRT_GIT_TREE_STATE}"))
     fi
 
-    if [[ -n ${KUBEVIRT_GIT_VERSION-} ]]; then
-        ldflags+=($(kubevirt::version::ldflag ${version_pkg} "gitVersion" "${KUBEVIRT_GIT_VERSION}"))
-    fi
+    # Also without a version tag, like Bazel (hack/print-workspace-status.sh)
+    ldflags+=($(kubevirt::version::ldflag ${version_pkg} "gitVersion" "${KUBEVIRT_GIT_VERSION-}"))
 
     if [[ -n ${DOCKER_TAG-} ]]; then
         conformance_pkg="kubevirt.io/tests/conformance"
