@@ -18,14 +18,12 @@
 #
 
 # Compile the Go programs of the KubeVirt images for one architecture
-# (BUILD_ARCH, the host's by default) into _out/cmd/. One hack/dockerized run
-# compiles all of them, so they share one Go build cache, and the
-# Containerfiles only copy the programs.
+# (BUILD_ARCH, the host's by default) into _out/cmd/. Runs in the builder
+# (hack/dockerized), so all programs share one Go build cache, and the
+# Containerfiles only copy them.
 #
-# virt-launcher and virt-handler link against libvirt. Its headers and
-# libraries come from the libvirt-devel base image (LIBVIRT_DEVEL_IMAGE) of
-# the target architecture, unpacked into .libvirt-devel/<arch>: hack/dockerized
-# does not copy _out into the builder.
+# virt-launcher and virt-handler compile against the libvirt-devel base image
+# (LIBVIRT_DEVEL_IMAGE) of that architecture, which skopeo unpacks here.
 
 set -e
 
@@ -71,10 +69,9 @@ handler_programs="
     cmd/virt-chroot
 "
 
-# Runs in the builder. hack/build-go.sh cross-compiles when ARCH is not the
-# host's architecture.
+# Compile all programs for ARCH; hack/build-go.sh cross-compiles when needed
 compile_programs() {
-    local devel=${KUBEVIRT_DIR}/.libvirt-devel/${ARCH}
+    local devel=$1
     export BUILD_ARCH=${ARCH}
     export KUBEVIRT_KEEP_OTHER_BINARIES=true
 
@@ -101,38 +98,41 @@ compile_programs() {
     BIN_NAME=none hack/build-go.sh install ${handler_programs}
 }
 
-# Unpack the libvirt-devel image for ARCH, unless that image is unpacked already
+# Unpack the libvirt-devel image, unless the same image is unpacked already
 unpack_libvirt_devel() {
-    local dir=${KUBEVIRT_DIR}/.libvirt-devel/${ARCH}
-    if [ "$(cat ${dir}/.image 2>/dev/null)" = "${LIBVIRT_DEVEL_IMAGE}" ]; then
+    local dir=$1
+    local inspect_tls="" copy_tls="" digest layer
+    # Base images rebuilt in CI are in the cluster registry, which has no TLS
+    case ${LIBVIRT_DEVEL_IMAGE} in
+    localhost:* | registry:*)
+        inspect_tls=--tls-verify=false
+        copy_tls=--src-tls-verify=false
+        ;;
+    esac
+    digest=$(skopeo --override-arch ${ARCH} inspect ${inspect_tls} --format '{{.Digest}}' docker://${LIBVIRT_DEVEL_IMAGE})
+    if [ "$(cat ${dir}/.digest 2>/dev/null)" = "${digest}" ]; then
         return
     fi
 
     echo "Unpacking ${LIBVIRT_DEVEL_IMAGE} (${ARCH}) into ${dir}"
-    rm -rf ${dir}
-    mkdir -p ${dir}/usr
-    local container status=0
-    container=$(${KUBEVIRT_CRI} create --platform linux/${ARCH} ${LIBVIRT_DEVEL_IMAGE} /bin/true)
-    ${KUBEVIRT_CRI} cp ${container}:/usr/include ${dir}/usr/ &&
-        ${KUBEVIRT_CRI} cp ${container}:/usr/lib64 ${dir}/usr/ || status=$?
-    ${KUBEVIRT_CRI} rm ${container} >/dev/null
-    [ ${status} -eq 0 ] || return ${status}
-    echo "${LIBVIRT_DEVEL_IMAGE}" >${dir}/.image
+    rm -rf "${dir:?}"
+    mkdir -p ${dir}/image
+    skopeo --override-arch ${ARCH} copy ${copy_tls} docker://${LIBVIRT_DEVEL_IMAGE} dir:${dir}/image
+    for layer in $(jq -r '.layers[].digest' ${dir}/image/manifest.json); do
+        tar -xf ${dir}/image/${layer#sha256:} -C ${dir}
+    done
+    rm -rf "${dir:?}/image"
+    echo "${digest}" >${dir}/.digest
 }
-
-if [ "$1" = "compile" ]; then
-    compile_programs
-    exit
-fi
 
 if [ -z "${LIBVIRT_DEVEL_IMAGE}" ]; then
     echo "LIBVIRT_DEVEL_IMAGE is not set" >&2
     exit 1
 fi
 
-unpack_libvirt_devel
+# Kept in the builder's home, which persists between hack/dockerized runs
+devel=${XDG_CACHE_HOME:-${HOME}/.cache}/kubevirt/libvirt-devel/${ARCH}
+unpack_libvirt_devel ${devel}
 
-# hack/dockerized picks the cross-compile builder when BUILD_ARCH is not the
-# host's architecture
 echo "Compiling the image programs for ${ARCH}"
-BUILD_ARCH=${ARCH} hack/dockerized "BUILD_ARCH=${ARCH} ./hack/build-image-binaries.sh compile"
+compile_programs ${devel}

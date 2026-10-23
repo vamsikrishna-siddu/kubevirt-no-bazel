@@ -3,5 +3,3 @@
 # enlarge every build context.
 _out/*
 !_out/cmd
-# libvirt headers and libraries for hack/build-image-binaries.sh
-.libvirt-devel/

@@ -337,10 +337,10 @@ for image in ${BUILD_TARGETS[@]}; do
 done
 
 if [[ "${NEEDS_PROGRAMS}" == "true" ]]; then
-    BUILD_ARCH=${PLATFORM_ARCH} \
-        LIBVIRT_DEVEL_IMAGE=${LIBVIRT_DEVEL_IMAGE} \
-        KUBEVIRT_CRI=${KUBEVIRT_CRI} \
-        ./hack/build-image-binaries.sh
+    # hack/dockerized picks the cross-compile builder when BUILD_ARCH is not the
+    # host's architecture
+    BUILD_ARCH=${PLATFORM_ARCH} hack/dockerized \
+        "BUILD_ARCH=${PLATFORM_ARCH} LIBVIRT_DEVEL_IMAGE=${LIBVIRT_DEVEL_IMAGE} ./hack/build-image-binaries.sh"
 fi
 
 if [[ "${NEEDS_SIDECAR_SHIM}" == "true" ]]; then
