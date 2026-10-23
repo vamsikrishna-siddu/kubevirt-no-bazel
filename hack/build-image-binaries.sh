@@ -91,14 +91,14 @@ compile_programs() {
     CGO_ENABLED=0 GOOS=linux GOARCH=${ARCH} go_build \
         -o ${CMD_OUT_DIR}/libvirt-hook-client/libvirt-hook-client ./cmd/virt-launcher/libvirt-hook-client
     BIN_NAME=none hack/build-go.sh install ${programs}
-    PKG_CONFIG_PATH=${devel}/usr/lib64/pkgconfig \
-        CGO_CFLAGS="-I${devel}/usr/include" \
-        CGO_LDFLAGS="-L${devel}/usr/lib64 -Wl,--allow-shlib-undefined" \
+
+    # The libvirt headers and libraries of ARCH, for the two groups below
+    export PKG_CONFIG_PATH=${devel}/usr/lib64/pkgconfig
+    export CGO_CFLAGS="-I${devel}/usr/include"
+    export CGO_LDFLAGS="-L${devel}/usr/lib64"
+    CGO_LDFLAGS="${CGO_LDFLAGS} -Wl,--allow-shlib-undefined" \
         hack/build-go.sh install ${launcher_programs}
-    PKG_CONFIG_PATH=${devel}/usr/lib64/pkgconfig \
-        CGO_CFLAGS="-I${devel}/usr/include" \
-        CGO_LDFLAGS="-L${devel}/usr/lib64" \
-        BIN_NAME=none hack/build-go.sh install ${handler_programs}
+    BIN_NAME=none hack/build-go.sh install ${handler_programs}
 }
 
 # Unpack the libvirt-devel image for ARCH, unless that image is unpacked already
