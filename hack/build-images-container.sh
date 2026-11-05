@@ -136,9 +136,9 @@ LAUNCHERBASE_IMAGE=${LAUNCHERBASE_IMAGE:-$(base_image launcherbase)}
 LIBVIRT_DEVEL_IMAGE=${LIBVIRT_DEVEL_IMAGE:-$(base_image libvirt-devel)}
 HANDLERBASE_IMAGE=${HANDLERBASE_IMAGE:-$(base_image handlerbase)}
 EXPORTSERVERBASE_IMAGE=${EXPORTSERVERBASE_IMAGE:-$(base_image exportserverbase)}
-LIBGUESTFS_BASE_IMAGE=${LIBGUESTFS_BASE_IMAGE:-$(base_image libguestfs-tools)}
-PR_HELPER_BASE_IMAGE=${PR_HELPER_BASE_IMAGE:-$(base_image pr-helper)}
-SIDECAR_SHIM_BASE_IMAGE=${SIDECAR_SHIM_BASE_IMAGE:-$(base_image sidecar-shim)}
+LIBGUESTFS_BASE_IMAGE=${LIBGUESTFS_BASE_IMAGE:-$(base_image libguestfs-tools-base)}
+PR_HELPER_BASE_IMAGE=${PR_HELPER_BASE_IMAGE:-$(base_image pr-helper-base)}
+SIDECAR_SHIM_BASE_IMAGE=${SIDECAR_SHIM_BASE_IMAGE:-$(base_image sidecar-shim-base)}
 TESTIMAGE_BASE_IMAGE=${TESTIMAGE_BASE_IMAGE:-$(base_image testimage)}
 
 BUILD_ARGS="--build-arg DISTROLESS_BASE_IMAGE=${DISTROLESS_BASE_IMAGE}"
