@@ -73,7 +73,8 @@ generate_tars_for_image() {
     s390x) rpm_arch="s390x" ;;
     esac
 
-    local trees="${image}"
+    # The rpmtree name: the image name without a -base suffix
+    local trees="${image%-base}"
     if [[ "${image}" == "handlerbase" ]]; then
         # handlerbase also needs passt-repair from the passt tree
         trees+=" passt_tree"
@@ -88,7 +89,7 @@ generate_tars_for_image() {
     for tree in ${trees}; do
         tar_requests+=("${context}/${tree}_${rpm_arch}_cs${KUBEVIRT_CENTOS_STREAM_VERSION}.tar")
     done
-    if [[ "${image}" == "libguestfs-tools" ]]; then
+    if [[ "${image}" == "libguestfs-tools-base" ]]; then
         tar_requests+=("${context}/appliance_layer_${rpm_arch}.tar")
     fi
 }

@@ -31,18 +31,18 @@ get_base_images_for_arch() {
         "libvirt-devel"
         "handlerbase"
         "exportserverbase"
-        "sidecar-shim"
+        "sidecar-shim-base"
         "testimage"
     )
 
     # pr-helper not available for s390x
     if [[ "${arch_tag}" != "s390x" ]]; then
-        images+=("pr-helper")
+        images+=("pr-helper-base")
     fi
 
     # libguestfs-tools only for amd64 and s390x (not arm64)
     if [[ "${arch_tag}" != "arm64" ]]; then
-        images+=("libguestfs-tools")
+        images+=("libguestfs-tools-base")
     fi
 
     # Allow override via BASE_IMAGE_TARGETS
