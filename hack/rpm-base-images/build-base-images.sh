@@ -60,9 +60,8 @@ echo "Builder: ${BUILDER_IMAGE}"
 echo "RPM tars: ${RPM_TARS_DIR}"
 echo "==============================================="
 
-# Add the tars that Containerfile.<image> copies to tar_requests, as paths in
-# the directory given as $3, which is then used as the build context.
-generate_tars_for_image() {
+# Add the tars that Containerfile.<image> copies to tar_requests
+compute_tars_for_image() {
     local image=$1
     local arch_tag=$2
     local context=$3
@@ -84,7 +83,6 @@ generate_tars_for_image() {
         trees+=" libnbd-devel"
     fi
 
-    rm -rf "${context}"
     local tree
     for tree in ${trees}; do
         tar_requests+=("${context}/${tree}_${rpm_arch}_cs${KUBEVIRT_CENTOS_STREAM_VERSION}.tar")
@@ -117,7 +115,10 @@ build_for_arch() {
 
     local -a tar_requests=()
     for image in "${arch_images[@]}"; do
-        generate_tars_for_image "${image}" "${arch_tag}" "${RPM_TARS_DIR}/${image}-${arch_tag}"
+        local context="${RPM_TARS_DIR}/${image}-${arch_tag}"
+        # Start without the tars of earlier builds
+        rm -rf "${context}"
+        compute_tars_for_image "${image}" "${arch_tag}" "${context}"
     done
     generate_requested_tars
 

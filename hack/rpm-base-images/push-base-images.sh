@@ -34,7 +34,6 @@ source "${SCRIPT_DIR}/common.sh"
 # RPM updates apply to every architecture
 BUILD_ARCH=${BUILD_ARCH:-amd64,arm64,s390x}
 
-# Build the images to push with the same tag, like the Bazel push
 BUILD_ARCH=${BUILD_ARCH} \
     DOCKER_PREFIX=${docker_prefix} \
     BASE_IMAGE_TAG=${BASE_IMAGE_TAG} \
