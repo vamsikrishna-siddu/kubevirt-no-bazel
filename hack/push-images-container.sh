@@ -38,6 +38,8 @@ if [ -z "${BUILD_ARCH}" ]; then
     esac
 fi
 
+BUILD_ARCH=${BUILD_ARCH} hack/multi-arch.sh hack/build-images-container.sh
+
 DIGESTS_DIR=${DIGESTS_DIR:-${OUT_DIR}/digests}
 
 build_count=$(echo ${BUILD_ARCH//,/ } | wc -w)
@@ -110,7 +112,6 @@ if [ ${#MISSING_IMAGES[@]} -gt 0 ]; then
     for img in "${MISSING_IMAGES[@]}"; do
         echo "- ${img}"
     done
-    echo "Please build images first"
     exit 1
 fi
 

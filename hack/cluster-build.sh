@@ -80,11 +80,8 @@ echo ""
 echo "Building functional test binaries"
 ${KUBEVIRT_PATH}hack/dockerized "KUBEVIRT_GO_BUILD_TAGS=${KUBEVIRT_GO_BUILD_TAGS} ./hack/go-build-functests.sh"
 
-echo "Building container images"
-${KUBEVIRT_PATH}hack/multi-arch.sh ${KUBEVIRT_PATH}hack/build-images-container.sh
-
 echo ""
-echo "Pushing images to cluster registry"
+echo "Building and pushing images to cluster registry"
 ${KUBEVIRT_PATH}hack/push-images-container.sh
 
 # Build and push cross-arch container disk images for cross-architecture emulation testing
@@ -102,17 +99,7 @@ if [ "${KUBEVIRT_CROSS_ARCH_EMULATION:-}" ]; then
         cross_docker_tag="${DOCKER_TAG}-${cross_tag}"
 
         echo ""
-        echo "Building cross-arch emulation images (${cross_build_arch}) with tag ${cross_docker_tag}"
-        BUILD_ARCH=${cross_build_arch} \
-            DOCKER_PREFIX=${docker_prefix} \
-            DOCKER_TAG=${cross_docker_tag} \
-            IMAGE_PREFIX=${IMAGE_PREFIX} \
-            PUSH_TARGETS="${cross_arch_targets}" \
-            KUBEVIRT_CRI=${KUBEVIRT_CRI} \
-            BUILDER_IMAGE=${BUILDER_IMAGE} \
-            ${KUBEVIRT_PATH}hack/build-images-container.sh
-
-        echo "Pushing cross-arch emulation images (${cross_build_arch}) with tag ${cross_docker_tag}"
+        echo "Building and pushing cross-arch emulation images (${cross_build_arch}) with tag ${cross_docker_tag}"
         BUILD_ARCH=${cross_build_arch} \
             DOCKER_PREFIX=${docker_prefix} \
             DOCKER_TAG=${cross_docker_tag} \
@@ -127,34 +114,30 @@ fi
 # tests in tests/operator
 alt_targets="virt-operator virt-api virt-controller virt-handler virt-launcher virt-exportserver virt-exportproxy virt-synchronization-controller"
 
+# Push a built image again under another name
+tag_and_push() {
+    local src=$1
+    local dst=$2
+    ${KUBEVIRT_CRI} tag ${src} ${dst}
+    ${KUBEVIRT_CRI} push $(get_push_flags ${dst}) ${dst}
+}
+
 if [ -n "${DOCKER_TAG_ALT}" ]; then
     echo ""
-    echo "Re-tagging images for alt tag ${DOCKER_TAG_ALT}"
+    echo "Pushing images with alt tag ${DOCKER_TAG_ALT}"
     for image in ${alt_targets}; do
-        ${KUBEVIRT_CRI} tag \
-            ${docker_prefix}/${IMAGE_PREFIX}${image}:${DOCKER_TAG} \
+        tag_and_push ${docker_prefix}/${IMAGE_PREFIX}${image}:${DOCKER_TAG} \
             ${docker_prefix}/${IMAGE_PREFIX}${image}:${DOCKER_TAG_ALT}
     done
-
-    DOCKER_TAG=${DOCKER_TAG_ALT} \
-        IMAGE_PREFIX=${IMAGE_PREFIX} \
-        PUSH_TARGETS="${alt_targets}" \
-        ${KUBEVIRT_PATH}hack/push-images-container.sh
 fi
 
 if [ -n "${IMAGE_PREFIX_ALT}" ]; then
     echo ""
-    echo "Re-tagging images for alt prefix ${IMAGE_PREFIX_ALT}"
+    echo "Pushing images with alt prefix ${IMAGE_PREFIX_ALT}"
     for image in ${alt_targets}; do
-        ${KUBEVIRT_CRI} tag \
-            ${docker_prefix}/${IMAGE_PREFIX}${image}:${DOCKER_TAG} \
+        tag_and_push ${docker_prefix}/${IMAGE_PREFIX}${image}:${DOCKER_TAG} \
             ${docker_prefix}/${IMAGE_PREFIX_ALT}${image}:${DOCKER_TAG}
     done
-
-    DOCKER_TAG=${DOCKER_TAG} \
-        IMAGE_PREFIX=${IMAGE_PREFIX_ALT} \
-        PUSH_TARGETS="${alt_targets}" \
-        ${KUBEVIRT_PATH}hack/push-images-container.sh
 fi
 
 echo ""
@@ -166,19 +149,15 @@ source hack/virt-template/default.sh
 echo ""
 echo "Pushing virt-template images with tag ${virt_template_version}"
 for target in virt-template-apiserver virt-template-controller; do
-    src=${docker_prefix}/${IMAGE_PREFIX}${target}:${DOCKER_TAG}
-    dst=${docker_prefix}/${IMAGE_PREFIX}${target}:${virt_template_version}
-    ${KUBEVIRT_CRI} tag ${src} ${dst}
-    ${KUBEVIRT_CRI} push $(get_push_flags ${dst}) ${dst}
+    tag_and_push ${docker_prefix}/${IMAGE_PREFIX}${target}:${DOCKER_TAG} \
+        ${docker_prefix}/${IMAGE_PREFIX}${target}:${virt_template_version}
 done
 
 if [ -n "${IMAGE_PREFIX_ALT}" ]; then
     echo "Pushing virt-template images with alt prefix ${IMAGE_PREFIX_ALT}"
     for target in virt-template-apiserver virt-template-controller; do
-        src=${docker_prefix}/${IMAGE_PREFIX}${target}:${virt_template_version}
-        dst=${docker_prefix}/${IMAGE_PREFIX_ALT}${target}:${virt_template_version}
-        ${KUBEVIRT_CRI} tag ${src} ${dst}
-        ${KUBEVIRT_CRI} push $(get_push_flags ${dst}) ${dst}
+        tag_and_push ${docker_prefix}/${IMAGE_PREFIX}${target}:${virt_template_version} \
+            ${docker_prefix}/${IMAGE_PREFIX_ALT}${target}:${virt_template_version}
     done
 fi
 
